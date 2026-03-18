@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# ML / model artifacts
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+models/
+checkpoints/
+
+# HuggingFace cache
+~/.cache/huggingface/
+
+# Data files
+data/
+*.csv
+*.parquet
+*.arrow
+
+# NIC output files
+*.nic
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
