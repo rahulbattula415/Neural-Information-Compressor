@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nic"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "torch",
+    "transformers",
+    "constriction",
+    "numpy",
+    "zstandard",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[project.scripts]
+nic = "nic.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["nic*"]
