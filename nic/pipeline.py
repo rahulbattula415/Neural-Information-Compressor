@@ -1,14 +1,24 @@
 import numpy as np
 import constriction
 from transformers import GPT2TokenizerFast
+from pathlib import Path
 
 VOCAB_SIZE = 50_257
-
+TOKENIZER_PATH = Path(__file__).parent / "tokenizer"
+PRECISION = 24
 
 # Dummy model - returns uniform distribution over full GPT-2 vocab
 def uniform_probs() -> np.ndarray:
-    return np.full(VOCAB_SIZE, 1.0 / VOCAB_SIZE, dtype=np.float64)
+    return np.full(VOCAB_SIZE, 1.0 / VOCAB_SIZE, dtype=np.float32)
 
+def load_tokenizer():
+    return GPT2TokenizerFast.from_pretrained(TOKENIZER_PATH)
+
+def probs_to_table(probs: np.ndarray) -> np.ndarray:
+    table = np.floor(probs * (1 << PRECISION)).astype(np.int32)
+    remainder = (1 << PRECISION) - table.sum()
+    table[np.argmax(probs)] += remainder    
+    return table
 
 # entropy_encode - ANS-encodes a token sequence using probability distribution. 
 # Returns a uint32 array.
@@ -27,7 +37,7 @@ def entropy_decode(compressed: np.ndarray, probs: np.ndarray, n_tokens: int) -> 
 
 # compress - Tokenize and entropy-encode text. Returns (compressed_bytes, n_tokens).
 def compress(text: str) -> tuple[bytes, int]:
-    tok = GPT2TokenizerFast.from_pretrained("gpt2")
+    tok = load_tokenizer()
     tokens = tok.encode(text)
     probs = uniform_probs()
     compressed = entropy_encode(tokens, probs)
@@ -35,7 +45,7 @@ def compress(text: str) -> tuple[bytes, int]:
 
 # decompress - Entropy-decode and detokenize back to the original text.
 def decompress(data: bytes, n_tokens: int) -> str:
-    tok = GPT2TokenizerFast.from_pretrained("gpt2")
+    tok = load_tokenizer()
     probs = uniform_probs()
     compressed = np.frombuffer(data, dtype=np.uint32)
     tokens = entropy_decode(compressed, probs, n_tokens)
