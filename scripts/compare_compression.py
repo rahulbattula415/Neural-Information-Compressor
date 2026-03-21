@@ -29,6 +29,15 @@ def report(label: str, original_bytes: int, compressed_bytes: int, elapsed: floa
     ratio = compressed_bytes / original_bytes
     print(f"  {label:<20} {compressed_bytes:>6} bytes  ({ratio:.3f}x)  {elapsed*1000:>8.1f}ms")
 
+
+# Warmup
+print("Warming up...")
+_warmup_text = "warmup"
+compress(_warmup_text, tok, lm)
+compress_uniform(_warmup_text)
+zstd.ZstdCompressor().compress(_warmup_text.encode())
+print("Done.\n")
+
 texts = {
     "short sentence": "Hello, this is a test of the Neural Information Compressor pipeline.",
     "repetitive":     "the the the the the the the the the the the the the the the the",
