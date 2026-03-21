@@ -26,6 +26,7 @@ env/
 *.safetensors
 models/
 checkpoints/
+nic/model/
 
 # HuggingFace cache
 ~/.cache/huggingface/

@@ -65,7 +65,7 @@ SHA (`revision="<sha>"`) to prevent silent upstream changes.
 - Raw byte stability: two compress calls return identical byte objects
 - Frequency table: `probs_to_table` sums to exactly `2^24` with no zero entries
 - CPU vs GPU: test fixture in place, skipped until Phase 3 adds GPU inference
-
+ig
 ## Remaining Risk
 
 The current dummy model (uniform distribution) makes determinism trivial since

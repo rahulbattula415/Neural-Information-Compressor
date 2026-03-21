@@ -60,3 +60,15 @@ def test_cpu_gpu_identical_output():
     compressed_gpu, n_gpu = compress(SAMPLE)
     assert compressed_cpu == compressed_gpu
     assert n_cpu == n_gpu
+
+def test_gpt2_round_trip_deterministic():
+    text = "Hello, this is a test of the Neural Information Compressor pipeline."
+
+    compressed1, n_tokens1 = compress(text)
+    compressed2, n_tokens2 = compress(text)
+
+    assert n_tokens1 == n_tokens2
+    assert compressed1 == compressed2, "Compressed bytes differ between runs"
+
+    recovered = decompress(compressed1, n_tokens1)
+    assert recovered == text, f"Round-trip failed: got {recovered!r}"
