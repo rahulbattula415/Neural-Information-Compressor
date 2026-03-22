@@ -31,6 +31,32 @@ def gpt2_probs_sequence(tokens: list[int], model) -> np.ndarray:
     probs = torch.softmax(logits, dim=-1).cpu().numpy().astype(np.float32)
     return probs
 
+# Returns GPT-2 probability distribution, also utilizes KV Caching for O(N) runtime
+def gpt2_probs_cached(tokens: list[int], model) -> np.ndarray:
+    device = next(model.parameters()).device
+    results = []
+    past = None
+
+    for i, tok in enumerate(tokens):
+        if i == 0:
+            results.append(uniform_probs())
+            input_ids = torch.tensor([[tok]], device=device)
+            with torch.no_grad():
+                out = model(input_ids=input_ids, past_key_values=None, use_cache=True)
+            past = out.past_key_values
+            # Collect logits from token 0's pass — this is the prediction for position 1
+            pending_probs = torch.softmax(out.logits[0, -1, :], dim=-1).cpu().numpy().astype(np.float32)
+        else:
+            results.append(pending_probs)  # attach prediction made FROM previous token
+            input_ids = torch.tensor([[tok]], device=device)
+            with torch.no_grad():
+                out = model(input_ids=input_ids, past_key_values=past, use_cache=True)
+            past = out.past_key_values
+            pending_probs = torch.softmax(out.logits[0, -1, :], dim=-1).cpu().numpy().astype(np.float32)
+
+    # pending_probs at loop end is the prediction for the token AFTER the sequence — discard it
+    return np.array(results)
+
 # Converts float probability array to integer frequency table
 def probs_to_table(probs: np.ndarray) -> np.ndarray:
     table = np.floor(probs * (1 << PRECISION)).astype(np.int32)
@@ -67,15 +93,11 @@ def compress(text: str, tok=None, lm=None) -> tuple[bytes, int]:
     if lm is None:
         lm = load_model()
     tokens = tok.encode(text)
-    n = len(tokens)
 
-    probs_seq = [uniform_probs()]
-    for i in range(1, n):
-        probs_seq.append(gpt2_probs_sequence(tokens[:i], lm)[-1])
-    probs_seq = np.vstack(probs_seq)
+    probs_seq = gpt2_probs_cached(tokens, lm)  # (n_tokens, vocab_size)
 
     compressed = entropy_encode(tokens, probs_seq)
-    return compressed.tobytes(), n
+    return compressed.tobytes(), len(tokens)
 
 # decompress - Entropy-decode and detokenize back to the original text.
 # Must reproduce the exact probs sequence used at encode time, so we decode autoregressively.
@@ -83,17 +105,33 @@ def decompress(data: bytes, n_tokens: int) -> str:
     tok = load_tokenizer()
     lm = load_model()
     compressed = np.frombuffer(data, dtype=np.uint32)
-    coder = constriction.stream.stack.AnsCoder(compressed)
 
+    # First pass: decode tokens using the same probs sequence used at encode time.
+    # We must reconstruct probs autoregressively since we don't have the tokens yet.
+    # gpt2_probs_cached requires the full sequence upfront, so we use a stateful
+    # incremental approach that mirrors exactly what compress produced.
+    device = next(lm.parameters()).device
+    coder = constriction.stream.stack.AnsCoder(compressed)
     tokens = []
+    past = None
+    pending_probs = None
+
     for i in range(n_tokens):
         if i == 0:
             probs = uniform_probs()
         else:
-            probs = gpt2_probs_sequence(tokens, lm)[-1]  # P(·|tokens decoded so far)
+            probs = pending_probs
+
         cat = constriction.stream.model.Categorical(probs, perfect=False)
         token = int(coder.decode(cat, 1)[0])
         tokens.append(token)
+
+        # Run cached forward pass on the token we just decoded to get next probs
+        input_ids = torch.tensor([[token]], device=device)
+        with torch.no_grad():
+            out = lm(input_ids=input_ids, past_key_values=past, use_cache=True)
+        past = out.past_key_values
+        pending_probs = torch.softmax(out.logits[0, -1, :], dim=-1).cpu().numpy().astype(np.float32)
 
     return tok.decode(tokens)
 

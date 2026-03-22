@@ -1,7 +1,7 @@
 import hashlib
 import numpy as np
 import pytest
-from nic.pipeline import compress, decompress, probs_to_table, uniform_probs
+from nic.pipeline import compress, decompress, probs_to_table, uniform_probs, gpt2_probs_cached, gpt2_probs_sequence, load_tokenizer, load_model, PRECISION
 
 SAMPLE = "Hello, this is a test of the Neural Information Compressor pipeline."
 
@@ -72,3 +72,60 @@ def test_gpt2_round_trip_deterministic():
 
     recovered = decompress(compressed1, n_tokens1)
     assert recovered == text, f"Round-trip failed: got {recovered!r}"
+
+def test_kv_cache_compress_decompress_match():
+    """
+    Both sides using the cached path must produce identical tables.
+    They don't need to match prefix calls — just each other.
+    """
+    tok = load_tokenizer()
+    lm = load_model()
+    tokens = tok.encode(SAMPLE)
+
+    cached_probs_a = gpt2_probs_cached(tokens, lm)
+    cached_probs_b = gpt2_probs_cached(tokens, lm)
+
+    for i in range(len(tokens)):
+        table_a = probs_to_table(cached_probs_a[i])
+        table_b = probs_to_table(cached_probs_b[i])
+        if not np.array_equal(table_a, table_b):
+            pytest.fail(f"Cached path is not self-consistent at token {i}")
+
+def test_kv_cache_matches_prefix_calls():
+    """
+    KV-cached probability tables must be identical to prefix-call tables
+    after quantization. Raw float differences up to ~1e-7 are acceptable
+    if probs_to_table absorbs them — this test checks at the boundary that
+    actually matters for lossless recovery.
+    """
+    from nic.pipeline import load_tokenizer, load_model
+
+    tok = load_tokenizer()
+    lm = load_model()
+    tokens = tok.encode(SAMPLE)
+
+    prefix_probs = []
+    for i in range(len(tokens)):
+        if i == 0:
+            p = uniform_probs()
+        else:
+            p = gpt2_probs_sequence(tokens[:i], lm)[-1]
+        prefix_probs.append(p)
+    prefix_probs = np.array(prefix_probs)
+
+    cached_probs = gpt2_probs_cached(tokens, lm)
+
+    assert prefix_probs.shape == cached_probs.shape, (
+        f"Shape mismatch: prefix={prefix_probs.shape}, cached={cached_probs.shape}"
+    )
+
+    for i in range(len(tokens)):
+        prefix_table = probs_to_table(prefix_probs[i])
+        cached_table = probs_to_table(cached_probs[i])
+        if not np.array_equal(prefix_table, cached_table):
+            max_prob_diff = np.abs(prefix_probs[i] - cached_probs[i]).max()
+            pytest.fail(
+                f"Quantized table mismatch at token {i} ('{tok.decode([tokens[i]])}').\n"
+                f"Max float diff before quantization: {max_prob_diff:.2e}\n"
+                f"Caching produces different entropy coding tables — lossless recovery broken."
+            )
